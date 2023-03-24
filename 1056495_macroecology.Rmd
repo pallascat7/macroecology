@@ -1,0 +1,364 @@
+---
+title: "Large datasets, focus on online access and management in R"
+author: "1056495"
+date: "2023-02-25"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+In this assignment, I have chosen to use the compadre data set. I am looking at the population growth rate and generation tiem of plants that are in the class Liliopsida. I aim to address if population growth rate and generation time can be predictors of eachother (do they have a strong correlation) and if they can be used as predictors for conservation status. In the later parts of the question, my aim was to look at a phylogenetic tree and plot the population growth rates on the trees. Unfortunately some errors have occurred that i past my understanding so i couldn't continue. 
+
+
+# 0:The (Data) Setup
+This section will have all the necessary code for setting up. This includes a github link for files; all the packages needed and the dataset that will be used throughout the assignment, detailing how it was subset-ted. 
+
+Github link: 
+```{r}
+#setwd("file path")
+#set your working directory to your computer making sure the files from Github can be "read in" correctly
+```
+
+```{r packages, message=FALSE, results='hide', warning=FALSE}
+
+install.packages("remotes")
+remotes::install_github("jonesor/Rcompadre@v0.1.0")
+remotes::install_github("jonesor/Rcompadre", build_opts = NULL)
+
+
+#install.packages("Rcompadre")
+#install.packages("tidyverse")
+#install.packages("popbio)
+#install.packages("Rage")
+#install.packages("taxize")
+#install.packages("htmltools")
+#install.packages("phytools")
+#install.packages("dplyr")
+#install.packages("popdemo")
+#install.packages("maps")
+#install.packages("rotl")
+
+library(Rcompadre)
+library(tidyverse)
+library(popbio)
+library(htmltools)
+library(Rage)
+library(taxize)
+library(phytools)
+library(ggplot2)
+library(dplyr)
+library(popdemo)
+library(maps)
+library(rotl)
+library(ggpubr)
+library(ggExtra)
+
+```
+
+```{r fetching the data "hide"}
+#compadre <- cdb_fetch("compadre")
+compadre <-cdb_fetch("compadre")
+```
+
+```{r echo=FALSE}
+
+chosen_taxa <- "Liliopsida" #This code includes the chosen taxa. 
+#this enables one to easily check unique species 
+
+compadre1 <- subset(compadre, Class == chosen_taxa & MatrixCaptivity == "W")
+
+#subset has the chosen taxa that are wild. 
+compadre_flags <- cdb_flag(compadre1)
+compadre_sub <- subset(compadre_flags, check_NA_A == FALSE & check_ergodic == TRUE)
+#unique(compadre_sub$SpeciesAccepted) #checking how many unique species there are. The threshold is over 10.
+#results: unique species is over 10 therefore the chosen taxa can be used
+
+
+```
+
+```{r adding population rate and generation time columns, echo=FALSE, warning=FALSE, results='hide'}
+compadre_sub$lambda <- unlist(lapply(matA(compadre_sub), popbio::lambda))
+compadre_sub$gen_T <- mapply(Rage::gen_time, matU(na.omit(compadre_sub)), matF(compadre_sub))
+```
+
+# Question 1: Show a histogram of the population growth rate, and a separate histogram of the generation time of your subset of species. 
+
+```{r histogram of population growth rate}
+#bins: sqrt(172) = 13
+
+outlier_lambda_lower <- subset(compadre_sub, lambda < 100)
+outlier_lambda_upper <- subset(compadre_sub, lambda > 200)
+
+
+ggplot(compadre_sub, aes(x = lambda, fill = Order))+
+  geom_histogram(bins = 13, alpha=0.8)+
+  xlab("Population Growth Rate")+
+  geom_vline(xintercept = 1, colour="green", linetype = "longdash")+
+  ggtitle("Population growth rate of Liliopsida")
+
+#ggplot(outlier_lambda_lower, aes(x = lambda, fill = Order))+
+#  geom_histogram(bins = 13, alpha=0.8)+
+#  xlab("Population Growth Rate")+
+ # geom_vline(xintercept = 1, colour="green", linetype = "longdash")+
+#  geom_vline(xintercept = 2, colour="green", linetype = "longdash")+
+ # geom_vline(xintercept = 1.5, colour="green", linetype = "longdash")+
+ # ggtitle("Population growth rate of Liliopsida")
+
+
+#ggplot(outlier_lambda_upper, aes(x = lambda, fill = Order))+
+ # geom_histogram(bins = 13, alpha=0.8)+
+ # xlab("Population Growth Rate")+
+  #geom_vline(xintercept = 1, colour="green", linetype = "longdash")+
+  #ggtitle("Population growth rate of Liliopsida")
+```
+```{r}
+ggplot(compadre_sub, aes(x = gen_T, fill = Order))+
+  geom_histogram(bins = 13, alpha=0.8)+
+  xlab("Generation Time")+
+  geom_vline(xintercept = 1, colour="green", linetype = "longdash")+
+  ggtitle("Generation Time of Liliopsida")+
+  xlim(0, 1000)
+
+ggplot(compadre_sub, aes(x = gen_T, fill = Order))+
+  geom_histogram(bins = 13, alpha=0.8)+
+  xlab("Generation Time")+
+  geom_vline(xintercept = 1, colour="green", linetype = "longdash")+
+  ggtitle("Generation Time of Liliopsida")
+```
+The first histogram shows how there the population growth rate of plants in the Liliopsida class cluster around the lower end (when the population growth rate is equal to 1). There are some smaller histogram bins that have a very small frequency which is why it is hard to see. Using some code and histogram manipulation Anthoxanthum odoratuma has a population growth rate of 320.5438. In the second histogram I plot the distribution of plants in the class liliopsida. There is a cluster of plants around the 0 – 100 range but  a population of Sabal minorn has a generation time of 2816.27. Overall, the histograms shows the plants have a population growth rate of 1 and generation time of 60.88 (mean).
+
+# Question 2: Fit a linear model to explore whether the generation time and population growth rate of your species’ populations are correlated.
+
+```{r any non-biological sensical data has become an NA, echo=FALSE}
+if (length(which(is.na(compadre_sub$lambda)))>0) {
+ compadre_sub1 <- compadre_sub[-which(is.na(compadre_sub$lambda)),] #removung nas when compadre$lambda (- is key)
+}
+if (length(which(is.na(compadre_sub$gen_T)))>0) {
+ compadre_sub1 <- compadre_sub[-which(is.na(compadre_sub$gen_T)),]
+}
+if (length(which(is.infinite(compadre_sub1$gen_T)))>0) {
+ compadre_sub1 <- compadre_sub[-which(is.infinite(compadre_sub$gen_T)),]
+}
+
+# nas were removed :)
+compadre_sub1 <- compadre_sub1[!is.na(compadre_sub1$gen_T),]
+#compadre_sub1 is the new dataset
+
+#dim(compadre_sub)
+#dim(compadre_sub1)
+
+#unique(compadre_sub1$SpeciesAccepted)
+
+#summary(compadre_sub1$lambda)
+#summary(compadre_sub1$gen_T)
+
+#filter(compadre_sub1, gen_T > 2000 )
+
+# unique species went from 172 to 138 
+
+```
+
+```{r correlation plot, warning=FALSE, message=FALSE}
+#ggplot(compadre_sub1, aes(y = gen_T, x = lambda))+
+#  geom_point(size = 2, shape = 23)+
+ # xlab("Population Growth Rate")+
+ # ylab("Generation time")+
+ # geom_smooth(method='lm', formula= y~x, linetype="dashed",
+ #            color="darkred", fill="blue")+
+ # ggtitle("The correlation of Population Growth Rate and Generation Rate of Liliopsida")
+
+ggplot(compadre_sub1, aes(y = gen_T, x = lambda))+
+  geom_point(size = 2, shape = 23)+
+  xlab("Population Growth Rate")+
+  ylab("Generation time")+
+  geom_smooth(method='lm', formula= y~x, linetype="dashed",
+             color="darkred", fill="blue")+
+  ggtitle("The correlation of Population Growth Rate and Generation Rate of Liliopsida")+
+  ylim(0, 1000)
+
+#NOTE: the y axis scale has decreased
+
+```
+```{r density plot to see distribution}
+
+ggdensity(compadre_sub1$lambda,
+          add = "mean", rug = TRUE, fill = '#00AFBB', color = '#00AFBB')+
+    xlab("Population Growth rate")+
+  ggtitle("Density plot of the Population Growth rate of Liliopsida")
+
+ggdensity(compadre_sub1$gen_T,
+           add = "mean", rug = TRUE, fill = '#E7B800', color = '#E7B800')+
+  xlab("Generation time")+
+  ggtitle("Density plot of the Generation time of Liliopsida")
+
+```
+```{r normality test}
+shapiro.test(compadre_sub1$lambda)
+shapiro.test(compadre_sub1$gen_T)
+```
+p-value is smaller then 0.05, suggesting that the distribution of gen_t and lambda is significant differently from a normal distribution 
+```{r linear regression}
+pop_gen1 <- lm(formula = gen_T ~ lambda, compadre_sub1)
+summary(pop_gen1)
+```
+
+r* = 0.008603 -> the populatuion ex0.8.603% 
+
+```{r diagnostic plots}
+par(mfrow = c(2, 2))
+plot(pop_gen1)
+```
+```{r diagnostic plots but seperately}
+plot(pop_gen1, which = 2) # right skew
+plot(pop_gen1, which = 1) # linear but clustering is shown 
+
+
+plot(pop_gen1, which = 3)
+plot(pop_gen1, which = 4) # outliers 1023, 361, 1022
+```
+Scatter plot was made to see if there was any correlation between the population growth rate and generation time of plants in the class Liliopsida. Visually, you can see no correlation between the two variables. The regression line (depicted) in red, is linear with a low gradient (-38.01). Two density plots and Shapiro-Wilk normality test  show that the distribution of population growth rate and generation time are non-normal. The linear model shows that the population growth rate explains 0. 8603% of the variation in the generation time but the p value is 0.001524 which states there is a significant relationship between generation time and population growth rate. Our regression analysis plots show a right skew (which can be seen in the histogram and density plot). Spearman’s rank correlation used for the non-normal data, which shows a no correlation (rho = -0.2440401).
+
+```{r correlation test}
+cor.test(compadre_sub1$gen_T,compadre_sub1$lambda, method = "spearman")
+```
+
+# Question3. Using a different key to the one I provided you with in the computer practical, obtain the  conservation status of these species from the IUCN Redlist site (https:/apiv3.iucnredlist.org), and explore, using statistical models, whether generation time, on the one hand, and population growth rate, on the other hand, predict conservation status.
+
+```{r, echo=FALSE, results='hide'}
+API_token <- "8d9c556bb4aa2efeacdc49775c0d0514b42139c96d5ed0f6b9ca5a495ffa49a4"
+IUCN.list <- iucn_summary(compadre_sub1$SpeciesAccepted, distr_detail = FALSE, key = API_token)
+IUCN_list <- IUCN.list
+```
+
+```{r}
+IUCN_data <- lapply(IUCN.list, function(x){
+return(tibble(IUCNstatus = x$status))}) %>%
+ bind_rows() %>%
+ mutate(SpeciesAccepted = compadre_sub1$SpeciesAccepted)
+
+compadre_iucn <- compadre_sub1 %>%
+ left_join(x = ., y = IUCN_data, by = "SpeciesAccepted") %>%
+ mutate(IUCNstatus = case_when(
+ IUCNstatus == "EN" ~ "Endangered",
+ IUCNstatus == "VU" ~ "Vulnerable",
+ IUCNstatus == "NT" ~ "Near Threatened",
+ IUCNstatus == "LC" ~ "Least Concern",
+ is.na(IUCNstatus) == TRUE ~ "Not Assessed"),
+ IUCNstatus = factor(IUCNstatus,
+ levels = c("Endangered","Vulnerable",
+ "Near Threatened","Least Concern",
+"Not Assessed")))
+```
+
+```{r}
+ggplot(compadre_iucn, aes(x = IUCNstatus, y = gen_T,
+                         fill = IUCNstatus, na.rm = TRUE)) +
+  geom_violin(show.legend = F, adjust = 10) +
+  stat_summary(fun.y=mean, geom="point", fill = 'pink', shape=23, size=2)+
+  scale_fill_viridis_d() +
+  labs(x = "IUCN redlist status", y = "Generation time (years)") +
+  theme_classic()+
+  ylim(0,1000)+
+  ggtitle("Violin plot of Generation time as a predictor for conservation status")
+
+```
+```{r}
+ggplot(compadre_iucn, aes(x = IUCNstatus, y = lambda, 
+                         fill = IUCNstatus, na.rm = TRUE)) +
+  geom_violin(show.legend = F, adjust = 10) +
+  stat_summary(fun.y=mean, geom="point", fill = 'pink', shape=23, size=2)+
+  scale_fill_viridis_d() +
+  labs(x = "IUCN redlist status", y = "Population Growth Rate") +
+  theme_classic()+
+  ggtitle("Violin plot of population growth rate as a predictor for conservation status")
+
+
+```
+
+```{r}
+ggdensity(compadre_iucn$lambda, 
+          add = "mean", rug = TRUE, fill = '#00AFBB', color = '#00AFBB')+
+   xlab("Population Growth rate")+
+  ggtitle("Density plot of the Population Growth rate of Liliopsida (IUCN data)")
+
+ggdensity(compadre_iucn$gen_T, 
+          add = "mean", rug = TRUE, fill = '#E7B800', color = '#E7B800')+
+  xlab("Generation time")+
+  ggtitle("Density plot of the Generation time of Liliopsida (IUCN data)")
+
+```
+The violin plots show the distribution of IUCN status species that belong Liliopsida class, grouped by their generation time and population growth rate. The violin plots suggest all the species overall have generation rates that are shorter. Endangered and vulnerable species have a smaller generation time compared to “least concern ‘ and not assessed species (longer range). Similar patterns showed for the violin plot with population growth rate. 
+```{r}
+ancova_model <- aov(lambda ~ IUCNstatus*gen_T, data = compadre_iucn)
+summary(ancova_model)
+
+plot(ancova_model, which = 1) # linear line but clustering is occuring and if there was more points maybe you can see a curve forming. 
+plot(ancova_model, which = 2) # tails but suggest overall a right skew.
+plot(ancova_model, which = 3)
+plot(ancova_model, which = 4) # very big and influential outliers
+```
+The ancova suggest that there is a significant relationship between the conservation status, population growth rate and generation time. This would suggest that population growth rate and generation time are good predictors of conservation status. Whereas my violin plots suggest that the violin plot themselves dont differ much so i believe it isnt a good predictor. The regression analysis plots provide evidence for this statment.
+
+# Question 4: Plot the values of generation time and of population growth rate of your species on the phylogeny provided to you (COMPADRE-COMADRE_Phylo_June_16_2019.tre). Is there any visual evidence of phylogenetic inertia in those traits? Why?
+```{r}
+my_taxa <- compadre_iucn$SpeciesAccepted
+
+compadre_iucn
+my_taxa
+
+resolved_names <- rotl::tnrs_match_names(names = my_taxa)
+
+compadre_iucn$ott_id <- resolved_names$ott_id
+dim(compadre_iucn)
+compadre_iucn <- compadre_iucn[-which(is.na(compadre_iucn$ott_id)),]
+dim(compadre_iucn)
+
+plot(my_tree)
+
+
+#my_tree$tip.label <- gsub('_ott', '', my_tree$tip.label)
+#my_tree$tip.label <- gsub('[0-9]+', '', my_tree$tip.label)
+#my_tree$tip.label <- gsub('_', ' ', my_tree$tip.label)
+
+#my_tree$tip.label
+#plot(my_tree)
+#plot(my_tree, type = "fan")
+
+```
+This is where i must stop. The species chamaedorea radicalis repeats many times where the is 38268 rows compared to the assigned data which is 138 rows. Due to this error i am unbale to continue to make a tree. I have included the rest of my code
+
+```{r}
+#setwd("...")
+#tree <- read.tree("COMPADRE-COMADRE_Phylo_June_16_2019.tre")
+#this tree can be found in my GITHUB link
+#plot(tree)
+#tree$tip.label <- gsub("_", " ", tree$tip.label)
+#pruned_tree <- drop.tip(tree, setdiff(tree$tip.label, comadre_iucn$OTL_unique_name))
+#pruned_tree
+#compadre_iucn$OTL_unique_name[which(compadre_iucn$OTL_unique_name%in%pruned_tree$tip.label==F)]
+#compadre_iucn <- compadre_iucn[-which(compadre_iucn$OTL_unique_name%in%pruned_tree$tip.label==F),]
+#dim(compadre_iucn)
+#compadre_iucn <- comadre_iucn[match(pruned_tree$tip.label,comadre_iucn$OTL_unique_name),]
+#dim(compadre_iucn)
+#compadre_iucn$OTL_unique_name
+#pruned_tree$tip.label
+#log_lambdas <- log(setNames(compadre_iucn$lambda, rownames(comadre_iucn)))
+#dotTree(pruned_tree,log_lambdas,length=10,ftype="i")
+```
+
+```{r}
+#liliopsida_contMap_lambda <- contMap(pruned_tree, log_lambdas,plot=FALSE,res=200)
+#liliopsida_contMap_lambda <- setMap(liliopsida_contMap_lambda, c("white","#FFFFB2","#FECC5C","#FD8D3C","#E31A1C"))
+#plot(liliopsida_contMap_lambda, fsize=c(0.7,0.8), leg.txt="log(population growth rate)")
+#par(mar=c(5.1,4.1,4.1,2.1)) 
+
+
+#log_gen_T <- log(setNames(compadre_iucn$gen_T, rownames(comadre_iucn)))
+#liliopsida_contMap_gen_T <- contMap(pruned_tree, log_gen_T,plot=FALSE,res=200)
+#liliopsida_contMap_gent_T <- setMap(mammal_contMap_gen_T, c("white","light blue","blue","violet","purple"))
+#plot(liliopsida_contMap_gent_T, fsize=c(0.7,0.8), leg.txt="log(generation time) (years)")
+```
+
